@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import {
   View,
   Text,
@@ -16,6 +16,10 @@ const DashboardScreen = ({ navigation }) => {
   const [powersExpanded, setPowersExpanded] = useState(true);
   const [sideQuestsExpanded, setSideQuestsExpanded] = useState(false);
   const [countdown, setCountdown] = useState('');
+
+  // Ref to track if component is mounted (prevents memory leaks)
+  const isMountedRef = useRef(true);
+  const countdownIntervalRef = useRef(null);
 
   const username = useGameStore((state) => state.username);
   const archetype = useGameStore((state) => state.archetype);
@@ -38,6 +42,19 @@ const DashboardScreen = ({ navigation }) => {
   // Phase info
   const phase = getPhase(currentDay);
 
+  // Track mounted state for cleanup
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+      // Clear any pending intervals on unmount
+      if (countdownIntervalRef.current) {
+        clearInterval(countdownIntervalRef.current);
+        countdownIntervalRef.current = null;
+      }
+    };
+  }, []);
+
   // Check for day reset on mount
   useEffect(() => {
     checkAndResetDay();
@@ -45,12 +62,23 @@ const DashboardScreen = ({ navigation }) => {
 
   // Countdown timer for locked day
   useEffect(() => {
+    // Clear existing interval before setting up new one
+    if (countdownIntervalRef.current) {
+      clearInterval(countdownIntervalRef.current);
+      countdownIntervalRef.current = null;
+    }
+
     if (!dayLockedAt) {
-      setCountdown('');
+      if (isMountedRef.current) {
+        setCountdown('');
+      }
       return;
     }
 
     const updateCountdown = () => {
+      // Only update state if component is still mounted
+      if (!isMountedRef.current) return;
+
       const now = new Date();
       const tomorrow = new Date(now);
       tomorrow.setDate(tomorrow.getDate() + 1);
@@ -72,8 +100,14 @@ const DashboardScreen = ({ navigation }) => {
     };
 
     updateCountdown();
-    const interval = setInterval(updateCountdown, 1000);
-    return () => clearInterval(interval);
+    countdownIntervalRef.current = setInterval(updateCountdown, 1000);
+
+    return () => {
+      if (countdownIntervalRef.current) {
+        clearInterval(countdownIntervalRef.current);
+        countdownIntervalRef.current = null;
+      }
+    };
   }, [dayLockedAt]);
 
   const onRefresh = async () => {

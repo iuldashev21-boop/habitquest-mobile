@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   View,
   Text,
@@ -13,6 +13,58 @@ import {
 } from 'react-native';
 import { useAuth } from '../hooks/useAuth';
 
+// Password strength validation
+const getPasswordStrength = (password) => {
+  if (!password) return { score: 0, label: '', color: '#333' };
+
+  let score = 0;
+  const checks = {
+    length: password.length >= 8,
+    uppercase: /[A-Z]/.test(password),
+    lowercase: /[a-z]/.test(password),
+    number: /[0-9]/.test(password),
+    special: /[^a-zA-Z0-9]/.test(password),
+    longEnough: password.length >= 12,
+  };
+
+  if (checks.length) score++;
+  if (checks.uppercase) score++;
+  if (checks.lowercase) score++;
+  if (checks.number) score++;
+  if (checks.special) score++;
+  if (checks.longEnough) score++;
+
+  const levels = [
+    { score: 0, label: '', color: '#333' },
+    { score: 1, label: 'Very Weak', color: '#ff4444' },
+    { score: 2, label: 'Weak', color: '#ff8800' },
+    { score: 3, label: 'Fair', color: '#ffcc00' },
+    { score: 4, label: 'Good', color: '#88cc00' },
+    { score: 5, label: 'Strong', color: '#00cc44' },
+    { score: 6, label: 'Very Strong', color: '#00ff88' },
+  ];
+
+  const level = levels[Math.min(score, 6)];
+  return { score, label: level.label, color: level.color, checks };
+};
+
+const validatePassword = (password) => {
+  const errors = [];
+  if (password.length < 8) {
+    errors.push('At least 8 characters');
+  }
+  if (!/[A-Z]/.test(password)) {
+    errors.push('One uppercase letter');
+  }
+  if (!/[a-z]/.test(password)) {
+    errors.push('One lowercase letter');
+  }
+  if (!/[0-9]/.test(password)) {
+    errors.push('One number');
+  }
+  return errors;
+};
+
 const AuthScreen = () => {
   const [mode, setMode] = useState('signin'); // 'signin', 'signup', 'reset'
   const [email, setEmail] = useState('');
@@ -24,6 +76,10 @@ const AuthScreen = () => {
 
   const isSignUp = mode === 'signup';
   const isReset = mode === 'reset';
+
+  // Password strength calculation
+  const passwordStrength = useMemo(() => getPasswordStrength(password), [password]);
+  const passwordErrors = useMemo(() => validatePassword(password), [password]);
 
   const handleSubmit = async () => {
     setMessage(null);
@@ -40,6 +96,15 @@ const AuthScreen = () => {
 
     if (isSignUp && !username.trim()) {
       Alert.alert('Error', 'Please enter a username');
+      return;
+    }
+
+    // Password strength check for sign up
+    if (isSignUp && passwordErrors.length > 0) {
+      Alert.alert(
+        'Weak Password',
+        'Your password needs:\n• ' + passwordErrors.join('\n• ')
+      );
       return;
     }
 
@@ -128,6 +193,31 @@ const AuthScreen = () => {
                   secureTextEntry
                   autoComplete={isSignUp ? 'new-password' : 'password'}
                 />
+              )}
+
+              {/* Password strength indicator for sign up */}
+              {isSignUp && password.length > 0 && (
+                <View style={styles.passwordStrengthContainer}>
+                  <View style={styles.strengthBarContainer}>
+                    {[1, 2, 3, 4, 5, 6].map((level) => (
+                      <View
+                        key={level}
+                        style={[
+                          styles.strengthBar,
+                          {
+                            backgroundColor:
+                              level <= passwordStrength.score
+                                ? passwordStrength.color
+                                : '#333',
+                          },
+                        ]}
+                      />
+                    ))}
+                  </View>
+                  <Text style={[styles.strengthLabel, { color: passwordStrength.color }]}>
+                    {passwordStrength.label}
+                  </Text>
+                </View>
               )}
 
               {message && <Text style={styles.message}>{message}</Text>}
@@ -281,6 +371,26 @@ const styles = StyleSheet.create({
     fontSize: 14,
     textAlign: 'center',
     marginBottom: 8,
+  },
+  passwordStrengthContainer: {
+    marginTop: -8,
+    marginBottom: 16,
+  },
+  strengthBarContainer: {
+    flexDirection: 'row',
+    gap: 4,
+    marginBottom: 6,
+  },
+  strengthBar: {
+    flex: 1,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: '#333',
+  },
+  strengthLabel: {
+    fontSize: 12,
+    textAlign: 'right',
+    fontFamily: 'monospace',
   },
 });
 

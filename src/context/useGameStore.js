@@ -31,6 +31,9 @@ const generateId = () => `${Date.now()}-${Math.random().toString(36).substr(2, 9
 let syncTimeout = null;
 const SYNC_DEBOUNCE_MS = 300;
 
+// Flag to prevent concurrent day reset operations
+let isResettingDay = false;
+
 const debouncedSync = (syncFn) => {
   if (syncTimeout) {
     clearTimeout(syncTimeout);
@@ -351,72 +354,68 @@ const useGameStore = create(
 
       // Complete a habit - adds XP and updates streak
       completeHabit: (habitId) => {
-        const state = get();
-        const habitIndex = state.habits.findIndex((h) => h.id === habitId);
+        // Use functional update for atomic state changes
+        set((state) => {
+          const habitIndex = state.habits.findIndex((h) => h.id === habitId);
 
-        if (habitIndex === -1) return;
+          if (habitIndex === -1) return state;
 
-        const habit = state.habits[habitIndex];
-        if (habit.completed) return; // Already completed today
+          const habit = state.habits[habitIndex];
+          if (habit.completed) return state; // Already completed today
 
-        // Calculate XP with streak multiplier
-        const streakMultiplier = getStreakMultiplier(state.currentStreak);
-        const earnedXp = Math.floor(habit.xp * streakMultiplier);
+          // Calculate XP with streak multiplier
+          const streakMultiplier = getStreakMultiplier(state.currentStreak);
+          const earnedXp = Math.floor(habit.xp * streakMultiplier);
 
-        // Add today to completedDates
-        const todayStr = getTodayYMD();
-        const newCompletedDates = [...(habit.completedDates || [])];
-        if (!newCompletedDates.includes(todayStr)) {
-          newCompletedDates.push(todayStr);
-        }
+          // Add today to completedDates
+          const todayStr = getTodayYMD();
+          const newCompletedDates = [...(habit.completedDates || [])];
+          if (!newCompletedDates.includes(todayStr)) {
+            newCompletedDates.push(todayStr);
+          }
 
-        // Calculate streak based on frequency
-        let newStreak = habit.streak;
-        if (habit.frequency === 'daily') {
-          // Daily habits: increment streak each day
-          newStreak = habit.streak + 1;
-        } else {
-          // Non-daily habits: streak is counted per successful week
-          // Streak increment happens at week end in checkAndResetDay
-          newStreak = habit.streak;
-        }
+          // Calculate streak based on frequency
+          let newStreak = habit.streak;
+          if (habit.frequency === 'daily') {
+            // Daily habits: increment streak each day
+            newStreak = habit.streak + 1;
+          } else {
+            // Non-daily habits: streak is counted per successful week
+            // Streak increment happens at week end in checkAndResetDay
+            newStreak = habit.streak;
+          }
 
-        // Update the habit
-        const updatedHabits = [...state.habits];
-        updatedHabits[habitIndex] = {
-          ...habit,
-          completed: true,
-          completedDates: newCompletedDates,
-          streak: newStreak,
-          longestStreak: Math.max(habit.longestStreak, newStreak)
-        };
+          // Update the habit
+          const updatedHabits = [...state.habits];
+          updatedHabits[habitIndex] = {
+            ...habit,
+            completed: true,
+            completedDates: newCompletedDates,
+            streak: newStreak,
+            longestStreak: Math.max(habit.longestStreak, newStreak)
+          };
 
-        // Calculate new XP and level
-        const newXp = state.xp + earnedXp;
-        const newLevel = Math.floor(newXp / XP_PER_LEVEL) + 1;
-
-        set({
-          habits: updatedHabits,
-          xp: newXp,
-          level: newLevel
-        });
-
-        // Check if all SCHEDULED habits are completed for perfect day bonus
-        const allScheduledCompleted = updatedHabits.every((h) => {
-          const isScheduled = isScheduledDay(h.frequency || 'daily');
-          return !isScheduled || h.completed;
-        });
-
-        if (allScheduledCompleted) {
-          const perfectXp = Math.floor(PERFECT_DAY_BONUS * streakMultiplier);
-          const finalXp = newXp + perfectXp;
-          const finalLevel = Math.floor(finalXp / XP_PER_LEVEL) + 1;
-
-          set({
-            xp: finalXp,
-            level: finalLevel
+          // Check if all SCHEDULED habits are completed for perfect day bonus
+          const allScheduledCompleted = updatedHabits.every((h) => {
+            const isScheduled = isScheduledDay(h.frequency || 'daily');
+            return !isScheduled || h.completed;
           });
-        }
+
+          // Calculate total XP atomically (including perfect day bonus if applicable)
+          let totalXpGain = earnedXp;
+          if (allScheduledCompleted) {
+            totalXpGain += Math.floor(PERFECT_DAY_BONUS * streakMultiplier);
+          }
+
+          const newXp = state.xp + totalXpGain;
+          const newLevel = Math.floor(newXp / XP_PER_LEVEL) + 1;
+
+          return {
+            habits: updatedHabits,
+            xp: newXp,
+            level: newLevel
+          };
+        });
 
         // Sync to Supabase after completing habit
         debouncedSync(() => get().syncToSupabase());
@@ -852,6 +851,14 @@ const useGameStore = create(
 
       // Check if we need to reset for a new day (uses MIDNIGHT local time)
       checkAndResetDay: () => {
+        // Prevent concurrent reset operations
+        if (isResettingDay) {
+          if (__DEV__) {
+            console.log('[GameStore] Day reset already in progress, skipping');
+          }
+          return false;
+        }
+
         const state = get();
         if (!state.dayStarted) return false;
 
@@ -871,6 +878,10 @@ const useGameStore = create(
           return false;
         }
 
+        // Set the flag to prevent concurrent resets
+        isResettingDay = true;
+
+        try {
         const today = getStartOfDay();
         const lastCompleted = state.lastCompletedDate
           ? getStartOfDay(new Date(state.lastCompletedDate))
@@ -953,6 +964,10 @@ const useGameStore = create(
         });
 
         return true; // Day was reset
+        } finally {
+          // Always reset the flag
+          isResettingDay = false;
+        }
       },
 
       // Calculate level based on total XP

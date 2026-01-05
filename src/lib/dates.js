@@ -130,3 +130,100 @@ export const daysBetween = (date1, date2) => {
   const diffMs = end.getTime() - start.getTime();
   return Math.round(diffMs / (1000 * 60 * 60 * 24));
 };
+
+/**
+ * Format date for user-facing display with locale support
+ * @param {Date|string} date - Date object or YYYY-MM-DD string
+ * @param {object} options - Intl.DateTimeFormat options
+ * @returns {string} Localized date string
+ */
+export const formatDateForDisplay = (date, options = {}) => {
+  const parsedDate = typeof date === 'string' ? parseLocalDate(date) : date;
+  if (!parsedDate) return '';
+
+  const defaultOptions = {
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+    ...options
+  };
+
+  try {
+    return parsedDate.toLocaleDateString(undefined, defaultOptions);
+  } catch (e) {
+    // Fallback for environments without Intl support
+    return formatDateYMD(parsedDate);
+  }
+};
+
+/**
+ * Format date with short month for compact display
+ * @param {Date|string} date - Date object or YYYY-MM-DD string
+ * @returns {string} Short date string (e.g., "Jan 5")
+ */
+export const formatDateShort = (date) => {
+  return formatDateForDisplay(date, { month: 'short', day: 'numeric' });
+};
+
+/**
+ * Get relative day description (Today, Yesterday, or formatted date)
+ * @param {Date|string} date - Date object or YYYY-MM-DD string
+ * @returns {string} Relative or formatted date string
+ */
+export const getRelativeDay = (date) => {
+  const parsedDate = typeof date === 'string' ? parseLocalDate(date) : date;
+  if (!parsedDate) return '';
+
+  const today = startOfLocalDay(new Date());
+  const dateStart = startOfLocalDay(parsedDate);
+  const diffDays = Math.round((today - dateStart) / (1000 * 60 * 60 * 24));
+
+  if (diffDays === 0) return 'Today';
+  if (diffDays === 1) return 'Yesterday';
+  if (diffDays < 7) return `${diffDays} days ago`;
+
+  return formatDateShort(parsedDate);
+};
+
+/**
+ * Check if a date is today in local timezone
+ * @param {Date|string} date - Date object or YYYY-MM-DD string
+ * @returns {boolean} True if the date is today
+ */
+export const isToday = (date) => {
+  return formatDateYMD(typeof date === 'string' ? parseLocalDate(date) : date) === getTodayYMD();
+};
+
+/**
+ * Check if a date is yesterday in local timezone
+ * @param {Date|string} date - Date object or YYYY-MM-DD string
+ * @returns {boolean} True if the date is yesterday
+ */
+export const isYesterday = (date) => {
+  const parsedDate = typeof date === 'string' ? parseLocalDate(date) : date;
+  if (!parsedDate) return false;
+
+  const yesterday = getDaysAgo(1);
+  return formatDateYMD(parsedDate) === formatDateYMD(yesterday);
+};
+
+/**
+ * Get the start of the current week (Sunday) in local timezone
+ * @returns {Date} Date at midnight on Sunday of current week
+ */
+export const getStartOfWeek = () => {
+  const now = new Date();
+  const day = now.getDay();
+  const diff = now.getDate() - day;
+  const sunday = new Date(now.setDate(diff));
+  return startOfLocalDay(sunday);
+};
+
+/**
+ * Get the start of the current month in local timezone
+ * @returns {Date} Date at midnight on first day of current month
+ */
+export const getStartOfMonth = () => {
+  const now = new Date();
+  return new Date(now.getFullYear(), now.getMonth(), 1);
+};
