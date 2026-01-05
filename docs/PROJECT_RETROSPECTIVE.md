@@ -112,3 +112,7 @@
 | Lib/Utils | 5 | ~500 |
 
 **Total**: ~6,500 lines of application code
+
+## CodeRabbit Review Request
+This PR is submitted for automated code review.
+
